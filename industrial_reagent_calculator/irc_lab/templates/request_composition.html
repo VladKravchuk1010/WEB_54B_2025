@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block title %}Заявка на расчет массы реагентов - Промышленный калькулятор{% endblock %}
+
+{% block content %}
+    <h2>Заявка на расчет массы реагентов</h2>
+    
+    <div class="calculation-params">
+        <h3>Параметры расчета</h3>
+        
+        <form method="POST" class="params-form">
+            {% csrf_token %}
+            
+            <div class="params-row">
+                <div class="param-group">
+                    <label for="target_mass">Целевая масса продукта (кг):</label>
+                    <input type="number" id="target_mass" name="target_mass" 
+                           value="{{ current_request.target_mass }}" step="0.1" min="0" required>
+                </div>
+                
+                <div class="param-group">
+                    <label for="safety_factor">Коэффициент запаса (%):</label>
+                    <input type="number" id="safety_factor" name="safety_factor" 
+                           value="{{ current_request.safety_factor }}" step="1" min="0" max="50">
+                </div>
+                
+                <div class="param-group">
+                    <button type="submit" class="btn-primary calculate-btn">Рассчитать</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="request-processes">
+        {% for service_data in services_with_processes %}
+        <div class="process-in-request">
+            <div class="process-image-small">
+                <img src="{{ service_data.process.image }}" 
+                     alt="{{ service_data.process.name }}">
+            </div>
+            <div class="process-info">
+                <h3>{{ service_data.process.name }}</h3>
+                <p class="process-description">{{ service_data.process.description }}</p>
+            </div>
+            
+            <div class="param-field">
+                <label for="param_{{ service_data.process.id }}">{{ service_data.process.parameter_name }} ({{ service_data.process.parameter_unit }}):</label>
+                <input type="number" id="param_{{ service_data.process.id }}" name="param_{{ service_data.process.id }}" 
+                       value="{{ service_data.process.parameter_default }}" 
+                       min="{{ service_data.process.parameter_min }}" 
+                       max="{{ service_data.process.parameter_max }}">
+            </div>
+            
+            <!-- МИНИМАЛЬНОЕ ДОБАВЛЕНИЕ: ПОЛЯ М-М -->
+            <div class="m2m-fields">
+                <div class="m2m-field">Кол-во: {{ service_data.m2m_data.quantity }}</div>
+                <div class="m2m-field">Порядок: {{ service_data.m2m_data.order }}</div>
+                <div class="m2m-field">Главный: {{ service_data.m2m_data.is_main|yesno:"Да,Нет" }}</div>
+                <div class="m2m-field">{{ service_data.m2m_data.comment }}</div>
+            </div>
+            
+            <div class="result-item">
+                <div class="result-label">Результат:</div>
+                <div class="result-value">{{ service_data.m2m_data.calculation_result }} кг</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+{% endblock %}

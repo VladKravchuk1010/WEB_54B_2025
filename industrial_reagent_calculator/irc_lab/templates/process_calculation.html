@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ process.name }} - Промышленный калькулятор реагентов{% endblock %}
+
+{% block content %}
+    <h2>{{ process.name }}</h2>
+    
+    <div class="process-detail-container">
+        <div class="process-image-side">
+            <img src="{{ process.image }}" 
+                 alt="{{ process.name }}">
+        </div>
+        
+        <div class="process-content">
+            <div class="process-info">
+                <div class="info-item">
+                    <span class="info-label">Исходное сырье:</span>
+                    <span class="info-value">{{ process.input_reagent }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Целевой продукт:</span>
+                    <span class="info-value">{{ process.output_product }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Выход реакции:</span>
+                    <span class="info-value">{{ process.reaction_yield }} ({{ process.reaction_yield|floatformat:0 }}%)</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Уравнение реакции:</span>
+                    <span class="info-value">{{ process.reaction_equation }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Исходная масса:</span>
+                    <span class="info-value">{{ process.input_mass }} кг</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Масса продукта:</span>
+                    <span class="info-value">{{ process.output_mass }} кг</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Выход реакции:</span>
+                    <span class="info-value">{{ process.yield_percent }}%</span>
+                </div>
+            </div>
+            
+            <div class="process-description">
+                <h3>Описание процесса</h3>
+                <p>{{ process.description }}</p>
+            </div>
+        </div>
+    </div>
+{% endblock %}
