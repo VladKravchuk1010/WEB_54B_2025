@@ -2,8 +2,8 @@
 
 {% block content %}
     <section class="search-section">
-        <form method="GET" action="{% url 'processes_list' %}" class="search-form">
-            <input type="text" name="search" value="{{ search_query }}"
+        <form method="GET" action="{% url 'chemical_processes' %}" class="search-form">
+            <input type="text" name="search_processes" value="{{ search_processes_query }}"
                    placeholder="Поиск по названию процесса или продукту..." 
                    class="search-input">
             <button type="submit" class="search-btn">Найти</button>
@@ -21,7 +21,7 @@
             <h3>{{ process.name }}</h3>
             <p class="reagent"><strong>Исходное сырье:</strong> {{ process.input_reagent }}</p>
             <div class="card-actions">
-                <a href="{% url 'process_detail' process.id %}" class="btn-primary">Подробнее</a>
+                <a href="{% url 'process_calculation' process.id %}" class="btn-primary">Подробнее</a>
             </div>
         </div>
         {% endfor %}

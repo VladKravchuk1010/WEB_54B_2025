@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:latest
+    volumes:
+      - postgresdb-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432:5439"
+    environment:
+      POSTGRES_USER: student
+      POSTGRES_DB: db_rip
+      POSTGRES_PASSWORD: root
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: root
+      MINIO_ROOT_PASSWORD: rootroot
+      MINIO_BROWSER: "on"
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:  # Добавляем healthcheck для надежности
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy  # Ждем готовности MinIO
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 root rootroot;
+      /usr/bin/mc mb --ignore-existing myminio/images;
+      /usr/bin/mc anonymous set public myminio/images;
+      echo 'Бакет images создан и настроен';
+      "
+
+  redis:
+    image: redis:6.2-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --save 20 1 --loglevel warning --requirepass password
+    volumes:
+      - redis-data:/data
+
+volumes:
+  postgresdb-data:
+  minio-data:
+  redis-data:

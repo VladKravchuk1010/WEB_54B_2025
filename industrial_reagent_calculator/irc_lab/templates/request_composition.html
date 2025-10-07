@@ -32,28 +32,36 @@
     </div>
 
     <div class="request-processes">
-        {% for process in processes %}
+        {% for service_data in services_with_processes %}
         <div class="process-in-request">
             <div class="process-image-small">
-                <img src="{{ process.image }}" 
-                     alt="{{ process.name }}">
+                <img src="{{ service_data.process.image }}" 
+                     alt="{{ service_data.process.name }}">
             </div>
             <div class="process-info">
-                <h3>{{ process.name }}</h3>
-                <p class="process-description">{{ process.description }}</p>
+                <h3>{{ service_data.process.name }}</h3>
+                <p class="process-description">{{ service_data.process.description }}</p>
             </div>
             
             <div class="param-field">
-                <label for="param_{{ process.id }}">{{ process.parameter_name }} ({{ process.parameter_unit }}):</label>
-                <input type="number" id="param_{{ process.id }}" name="param_{{ process.id }}" 
-                       value="{{ process.parameter_default }}" 
-                       min="{{ process.parameter_min }}" 
-                       max="{{ process.parameter_max }}">
+                <label for="param_{{ service_data.process.id }}">{{ service_data.process.parameter_name }} ({{ service_data.process.parameter_unit }}):</label>
+                <input type="number" id="param_{{ service_data.process.id }}" name="param_{{ service_data.process.id }}" 
+                       value="{{ service_data.process.parameter_default }}" 
+                       min="{{ service_data.process.parameter_min }}" 
+                       max="{{ service_data.process.parameter_max }}">
+            </div>
+            
+            <!-- МИНИМАЛЬНОЕ ДОБАВЛЕНИЕ: ПОЛЯ М-М -->
+            <div class="m2m-fields">
+                <div class="m2m-field">Кол-во: {{ service_data.m2m_data.quantity }}</div>
+                <div class="m2m-field">Порядок: {{ service_data.m2m_data.order }}</div>
+                <div class="m2m-field">Главный: {{ service_data.m2m_data.is_main|yesno:"Да,Нет" }}</div>
+                <div class="m2m-field">{{ service_data.m2m_data.comment }}</div>
             </div>
             
             <div class="result-item">
-                <span class="result-label">Необходимо сырья:</span>
-                <span class="result-value">{{ process.calculated_mass }} кг</span>
+                <div class="result-label">Результат:</div>
+                <div class="result-value">{{ service_data.m2m_data.calculation_result }} кг</div>
             </div>
         </div>
         {% endfor %}

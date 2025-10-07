@@ -319,7 +319,7 @@ h2 {
     padding: 1.5rem;
     border: 1px solid #3A4A5C;
     display: grid;
-    grid-template-columns: 100px 2fr 1fr 1fr;
+    grid-template-columns: 80px 1.8fr 0.8fr 1fr 0.8fr;;
     gap: 1.5rem;
     align-items: center;
     height: 150px;
@@ -379,19 +379,6 @@ h2 {
     flex-direction: column;
     justify-content: center;
     height: 100%;
-}
-
-.result-label {
-    color: #FFFFFF;
-    font-weight: bold;
-    font-size: 0.85rem;
-    margin-bottom: 0.3rem;
-}
-
-.result-value {
-    color: #FFD304;
-    font-weight: bold;
-    font-size: 1.1rem;
 }
 
 .process-image {
@@ -460,4 +447,45 @@ h2 {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+}
+
+.m2m-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+}
+
+.m2m-field {
+    padding: 0.4rem;
+    background: rgba(255, 211, 4, 0.1);
+    border: 1px solid rgba(255, 211, 4, 0.3);
+    border-radius: 6px;
+    color: #ffffff;
+    text-align: center;
+    font-weight: bold;
+}
+
+.result-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 0.8rem;
+    background: rgba(125, 42, 235, 0.1);
+    border: 1px solid #7D2AEB;
+    border-radius: 8px;
+}
+
+.result-label {
+    color: #FFFFFF;
+    font-weight: bold;
+    font-size: 0.85rem;
+    margin-bottom: 0.3rem;
+}
+
+.result-value {
+    color: #FFD304;
+    font-weight: bold;
+    font-size: 1.1rem;
 }

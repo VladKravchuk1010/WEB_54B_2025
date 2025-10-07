@@ -29,6 +29,18 @@
                     <span class="info-label">Уравнение реакции:</span>
                     <span class="info-value">{{ process.reaction_equation }}</span>
                 </div>
+                <div class="info-item">
+                    <span class="info-label">Исходная масса:</span>
+                    <span class="info-value">{{ process.input_mass }} кг</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Масса продукта:</span>
+                    <span class="info-value">{{ process.output_mass }} кг</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Выход реакции:</span>
+                    <span class="info-value">{{ process.yield_percent }}%</span>
+                </div>
             </div>
             
             <div class="process-description">

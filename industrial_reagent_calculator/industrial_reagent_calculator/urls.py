@@ -19,7 +19,7 @@ from django.urls import path
 from irc_lab import views
 
 urlpatterns = [
-    path('', views.processes_list, name='processes_list'),
-    path('process/<int:id>/', views.process_detail, name='process_detail'),
-    path('request/', views.request_detail, name='request_detail'),
+    path('', views.chemical_processes_list, name='chemical_processes'),
+    path('process/<int:id>/', views.process_calculation, name='process_calculation'),
+    path('request/', views.request_composition, name='request_composition'),
 ]
