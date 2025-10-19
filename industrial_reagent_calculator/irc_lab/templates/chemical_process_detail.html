@@ -47,6 +47,10 @@
                 <h3>Описание процесса</h3>
                 <p>{{ process.description }}</p>
             </div>
+            <form method="post" action="{% url 'remove_chemical_process' process.id %}">
+                {% csrf_token %}
+                <button name="remove_chemical_process" class="btn-secondary">Удалить товар</button>
+            </form>
         </div>
     </div>
 {% endblock %}

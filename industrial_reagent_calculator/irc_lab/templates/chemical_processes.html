@@ -21,7 +21,12 @@
             <h3>{{ process.name }}</h3>
             <p class="reagent"><strong>Исходное сырье:</strong> {{ process.input_reagent }}</p>
             <div class="card-actions">
-                <a href="{% url 'process_calculation' process.id %}" class="btn-primary">Подробнее</a>
+                <form method="post" action="{% url 'add_chemical_process' process.id %}">
+                    {% csrf_token %}
+                    <button name="add_chemical_process" class="add-btn">Добавить
+                    </button>
+                </form>
+                <a href="{% url 'chemical_process_detail' process.id %}" class="btn-primary">Подробнее</a>
             </div>
         </div>
         {% endfor %}

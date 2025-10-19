@@ -94,3 +94,5 @@ current_request = {
         }
     ]
 }
+
+processes_in_request = 2

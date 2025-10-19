@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'irc_lab',
 ]
 
 MIDDLEWARE = [
@@ -49,7 +50,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'industrial_reagent_calculator.urls'
+ROOT_URLCONF = 'irc.urls'
 
 TEMPLATES = [
     {
@@ -66,7 +67,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'industrial_reagent_calculator.wsgi.application'
+WSGI_APPLICATION = 'irc.wsgi.application'
 
 
 # Database
@@ -74,8 +75,12 @@ WSGI_APPLICATION = 'industrial_reagent_calculator.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'db_rip',
+        'USER': 'student',
+        'PASSWORD': 'root',
+        'HOST': 'localhost',
+        'PORT': 5433,
     }
 }
 

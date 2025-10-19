@@ -25,8 +25,8 @@
         </div>
     </main>
 
-    <a href="{% url 'request_composition' %}" class="request-cart">
-        <div class="cart-badge">2</div>
+    <a href="{% url 'request_reagent_calculation' calculation_id %}" class="request-cart {% if processes_in_request == 0 %}request-cart-empty{% endif %}">
+        <div class="cart-badge">{{ processes_in_request }}</div>
     </a>
 </body>
 </html>

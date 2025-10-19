@@ -183,6 +183,24 @@ body {
     color: white;
 }
 
+.add-btn {
+    padding: 0.75rem 1.5rem;
+    color: #FFD304;
+    background-color: #273343;
+    text-decoration: none;
+    border-radius: 8px;
+    border: 2px solid #FFD304;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.3s ease;
+    font-size: 1rem;    
+}
+
+.add-btn:hover {
+    background-color: #FFD304;
+    color: white;
+}
+
 .process-detail {
     background: #273343;
     border-radius: 12px;
@@ -450,10 +468,7 @@ h2 {
 }
 
 .m2m-fields {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.3rem;
-    font-size: 0.75rem;
+    font-size: 1rem;
 }
 
 .m2m-field {
@@ -488,4 +503,33 @@ h2 {
     color: #FFD304;
     font-weight: bold;
     font-size: 1.1rem;
+}
+
+.btn-secondary {
+    padding: 0.75rem 1.5rem;
+    color: #f22020;
+    background-color: #273343;
+    text-decoration: none;
+    border-radius: 8px;
+    border: 2px solid #f22020;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.3s ease;
+    font-size: 1rem;    
+}
+
+.btn-secondary:hover {
+    background-color: #f22020;
+    color: white;
+}
+
+.request-cart-empty {
+    background: linear-gradient(135deg, #666, #888);
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.request-cart-empty:hover {
+    transform: none;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
