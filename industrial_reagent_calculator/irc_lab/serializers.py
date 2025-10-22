@@ -93,10 +93,11 @@ class ChemicalProcessInCalculationDeleteSerializer(serializers.Serializer):
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
     password_confirm = serializers.CharField(write_only=True)
+    is_staff = serializers.BooleanField(default=False, required=False)  # Добавляем
     
     class Meta:
         model = User
-        fields = ['username', 'email', 'first_name', 'last_name', 'password', 'password_confirm']
+        fields = ['username', 'email', 'first_name', 'last_name', 'password', 'password_confirm', 'is_staff']
     
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
@@ -108,10 +109,13 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return attrs
     
     def create(self, validated_data):
-        # Убираем password_confirm и хэшируем пароль
         validated_data.pop('password_confirm')
-        validated_data['password'] = make_password(validated_data['password'])
-        return super().create(validated_data)
+        is_staff = validated_data.pop('is_staff', False)
+        
+        user = User.objects.create_user(**validated_data)
+        user.is_staff = is_staff  # Устанавливаем права менеджера
+        user.save()
+        return user
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:

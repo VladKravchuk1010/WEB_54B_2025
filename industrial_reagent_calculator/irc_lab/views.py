@@ -140,8 +140,8 @@ def add_chemical_process(request, process_id):
 
 def get_reagent_calculaion_in_draft_ctatus(user=None):
 
-    if user is None:
-        user = User.objects.get(username="student")
+    if user is None or not user.is_authenticated:
+        return None
 
     calculation = ReagentCalculation.objects.filter(
             client=user,

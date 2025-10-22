@@ -1,6 +1,6 @@
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
@@ -9,7 +9,7 @@ from .models import ChemicalProcess, ReagentCalculation, ChemicalProcessInReagen
 from django.contrib.auth.models import User
 from django.db.models import Sum
 from .views import get_reagent_calculaion_in_draft_ctatus
-from django.contrib.auth import login, logout
+from django.contrib.auth import login, logout, authenticate
 from .serializers import (
     ChemicalProcessInCalculationDeleteSerializer,
     ChemicalProcessInCalculationUpdateSerializer,
@@ -25,23 +25,28 @@ from .serializers import (
     UserLoginSerializer
 )
 
-def get_fixed_user():
-    try:
-        user = User.objects.get(id=1)
-    except User.DoesNotExist:
-        user = User.objects.create_user(
-            id=1,
-            username='student',
-            password='root'
-        )
-    return user
+# Swagger imports
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
+# Permissions imports
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+from .permissions import IsManager, IsAdmin, IsOwner, IsOwnerOrManager
 
 class ChemicalProcessList(APIView):
     """
     GET: Список услуг с фильтрацией
     POST: Добавление новой услуги (без изображения)
     """
+    permission_classes = [IsAuthenticatedOrReadOnly]
     
+    @swagger_auto_schema(
+        operation_description="Получить список химических процессов с фильтрацией",
+        manual_parameters=[
+            openapi.Parameter('search', openapi.IN_QUERY, description="Поиск по названию", type=openapi.TYPE_STRING),
+        ],
+        responses={200: ChemicalProcessSerializer(many=True)}
+    )
     def get(self, request):
         # Фильтрация - только активные услуги
         processes = ChemicalProcess.objects.filter(is_active=True)
@@ -56,7 +61,22 @@ class ChemicalProcessList(APIView):
         serializer = ChemicalProcessSerializer(processes, many=True)
         return Response(serializer.data)
     
+    @swagger_auto_schema(
+        operation_description="Создать новый химический процесс",
+        request_body=ChemicalProcessCreateSerializer,
+        responses={
+            201: ChemicalProcessCreateSerializer,
+            400: 'Validation Error'
+        }
+    )
     def post(self, request):
+        # Проверка прав - только менеджеры и админы могут создавать процессы
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'error': 'Недостаточно прав для создания химического процесса'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
         serializer = ChemicalProcessCreateSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -69,13 +89,33 @@ class ChemicalProcessDetail(APIView):
     PUT: Изменение услуги
     DELETE: Удаление услуги (с удалением изображения)
     """
+    permission_classes = [IsAuthenticatedOrReadOnly]
     
+    @swagger_auto_schema(
+        operation_description="Получить детали химического процесса по ID",
+        responses={200: ChemicalProcessSerializer}
+    )
     def get(self, request, pk):
         process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
         serializer = ChemicalProcessSerializer(process)
         return Response(serializer.data)
     
+    @swagger_auto_schema(
+        operation_description="Обновить химический процесс",
+        request_body=ChemicalProcessCreateSerializer,
+        responses={
+            200: ChemicalProcessCreateSerializer,
+            400: 'Validation Error'
+        }
+    )
     def put(self, request, pk):
+        # Проверка прав - только менеджеры и админы могут изменять процессы
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'error': 'Недостаточно прав для изменения химического процесса'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
         process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
         serializer = ChemicalProcessCreateSerializer(process, data=request.data, partial=True)
         if serializer.is_valid():
@@ -83,18 +123,44 @@ class ChemicalProcessDetail(APIView):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    @swagger_auto_schema(
+        operation_description="Удалить химический процесс (деактивация)",
+        responses={204: 'No Content'}
+    )
     def delete(self, request, pk):
+        # Проверка прав - только менеджеры и админы могут удалять процессы
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {'error': 'Недостаточно прав для удаления химического процесса'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
         process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
-        # Вместо реального удаления помечаем как неактивный
         process.is_active = False
         process.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Добавить/изменить изображение для химического процесса",
+    request_body=ChemicalProcessImageSerializer,
+    responses={
+        200: ChemicalProcessImageSerializer,
+        400: 'Validation Error'
+    }
+)
 @api_view(['POST'])
 def chemical_process_upload_image(request, pk):
     """
     POST: Добавление/изменение изображения для услуги
     """
+    # Проверка прав - только менеджеры и админы
+    if not (request.user.is_staff or request.user.is_superuser):
+        return Response(
+            {'error': 'Недостаточно прав для загрузки изображений'}, 
+            status=status.HTTP_403_FORBIDDEN
+        )
+        
     process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
     
     # TODO: Здесь будет логика загрузки в Minio
@@ -110,9 +176,14 @@ class CartIconView(APIView):
     """
     GET: Иконка корзины - возвращает id заявки-черновика и количество услуг
     """
+    permission_classes = [IsAuthenticated]  # Только авторизованные
     
+    @swagger_auto_schema(
+        operation_description="Получить информацию о корзине (количество процессов в черновике)",
+        responses={200: CartIconSerializer}
+    )
     def get(self, request):
-        user = get_fixed_user()
+        user = request.user
         
         # Ищем заявку в статусе DRAFT для этого пользователя
         draft_calculation = get_reagent_calculaion_in_draft_ctatus(user)
@@ -137,15 +208,33 @@ class ReagentCalculationList(APIView):
     """
     GET: Список заявок (кроме удаленных и черновика) с фильтрацией
     """
+    permission_classes = [IsAuthenticated]  # Только авторизованные
     
+    @swagger_auto_schema(
+        operation_description="Получить список заявок на расчет реагентов",
+        manual_parameters=[
+            openapi.Parameter('status', openapi.IN_QUERY, description="Фильтр по статусу", type=openapi.TYPE_STRING),
+            openapi.Parameter('date_from', openapi.IN_QUERY, description="Дата от (YYYY-MM-DD)", type=openapi.TYPE_STRING),
+            openapi.Parameter('date_to', openapi.IN_QUERY, description="Дата до (YYYY-MM-DD)", type=openapi.TYPE_STRING),
+        ],
+        responses={200: ReagentCalculationSerializer(many=True)}
+    )
     def get(self, request):
-        # Исключаем удаленные и черновики
-        calculations = ReagentCalculation.objects.exclude(
+        # Базовый queryset - исключаем удаленные и черновики
+        base_queryset = ReagentCalculation.objects.exclude(
             status__in=[
                 ReagentCalculation.ReagentCalculationStatus.DELETED,
                 ReagentCalculation.ReagentCalculationStatus.DRAFT
             ]
         )
+        
+        # Разные права доступа для разных ролей
+        if request.user.is_staff or request.user.is_superuser:
+            # Менеджеры и админы видят все заявки
+            calculations = base_queryset
+        else:
+            # Обычные пользователи видят только свои заявки
+            calculations = base_queryset.filter(client=request.user)
         
         # Фильтрация по статусу
         status_filter = request.GET.get('status', '')
@@ -170,14 +259,30 @@ class ReagentCalculationDetail(APIView):
     PUT: Изменение полей заявки
     DELETE: Удаление заявки
     """
+    permission_classes = [IsOwnerOrManager]  # Владелец ИЛИ менеджер
     
+    @swagger_auto_schema(
+        operation_description="Получить детали заявки на расчет реагентов",
+        responses={200: ReagentCalculationSerializer}
+    )
     def get(self, request, pk):
         calculation = get_object_or_404(ReagentCalculation, pk=pk)
+        # Permission IsOwnerOrManager автоматически проверит доступ
         serializer = ReagentCalculationSerializer(calculation)
         return Response(serializer.data)
     
+    @swagger_auto_schema(
+        operation_description="Обновить заявку на расчет реагентов",
+        request_body=ReagentCalculationCreateSerializer,
+        responses={
+            200: ReagentCalculationSerializer,
+            400: 'Validation Error'
+        }
+    )
     def put(self, request, pk):
         calculation = get_object_or_404(ReagentCalculation, pk=pk)
+        # Permission IsOwnerOrManager автоматически проверит доступ
+        
         serializer = ReagentCalculationCreateSerializer(calculation, data=request.data, partial=True)
         
         if serializer.is_valid():
@@ -187,8 +292,16 @@ class ReagentCalculationDetail(APIView):
             return Response(full_serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    @swagger_auto_schema(
+        operation_description="Удалить заявку на расчет реагентов",
+        responses={
+            204: 'No Content',
+            400: 'Validation Error'
+        }
+    )
     def delete(self, request, pk):
         calculation = get_object_or_404(ReagentCalculation, pk=pk)
+        # Permission IsOwnerOrManager автоматически проверит доступ
         
         # Можно удалять только черновики (по заданию)
         if calculation.status != ReagentCalculation.ReagentCalculationStatus.DRAFT:
@@ -200,14 +313,24 @@ class ReagentCalculationDetail(APIView):
         calculation.status = ReagentCalculation.ReagentCalculationStatus.DELETED
         calculation.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
-    
+
+@swagger_auto_schema(
+    method='put',
+    operation_description="Сформировать заявку (изменить статус DRAFT → FORMED)",
+    responses={
+        200: ReagentCalculationSerializer,
+        400: 'Validation Error'
+    }
+)
 @api_view(['PUT'])
+@permission_classes([IsOwner])  # Только владелец может формировать свою заявку
 def calculation_form(request, pk):
     """
     PUT: Сформировать заявку создателем
     Проверка обязательных полей и смена статуса DRAFT → FORMED
     """
     calculation = get_object_or_404(ReagentCalculation, pk=pk)
+    # Permission IsOwner автоматически проверит что request.user == calculation.client
     
     # Проверяем, что заявка в статусе черновика
     if calculation.status != ReagentCalculation.ReagentCalculationStatus.DRAFT:
@@ -249,7 +372,22 @@ def calculation_form(request, pk):
     serializer = ReagentCalculationSerializer(calculation)
     return Response(serializer.data)
 
+@swagger_auto_schema(
+    method='put',
+    operation_description="Завершить/отклонить заявку модератором",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'action': openapi.Schema(type=openapi.TYPE_STRING, description='complete или reject')
+        }
+    ),
+    responses={
+        200: ReagentCalculationSerializer,
+        400: 'Validation Error'
+    }
+)
 @api_view(['PUT'])
+@permission_classes([IsManager])  # Только менеджеры могут завершать заявки
 def calculation_complete(request, pk):
     """
     PUT: Завершить/отклонить заявку модератором
@@ -273,8 +411,8 @@ def calculation_complete(request, pk):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Получаем фиксированного модератора (пока используем того же пользователя)
-    moderator = get_fixed_user()
+    # Используем текущего пользователя как модератора
+    moderator = request.user
     
     # Меняем статус в зависимости от действия
     if action == 'complete':
@@ -324,7 +462,23 @@ def calculate_total_input_mass(calculation):
     
     return round(total_mass, 2)
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Добавить химический процесс в корзину (заявку-черновик)",
+    responses={
+        201: openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'message': openapi.Schema(type=openapi.TYPE_STRING),
+                'calculation_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'processes_count': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'created_new_calculation': openapi.Schema(type=openapi.TYPE_BOOLEAN)
+            }
+        )
+    }
+)
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])  # Только авторизованные
 def add_process_to_cart(request, pk):
     """
     POST: Добавление услуги в заявку-черновик
@@ -333,8 +487,8 @@ def add_process_to_cart(request, pk):
     # Получаем услугу
     process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
     
-    # Получаем фиксированного пользователя
-    user = get_fixed_user()
+    # Используем текущего пользователя
+    user = request.user
     
     # Ищем или создаем заявку-черновик для пользователя
     calculation = get_reagent_calculaion_in_draft_ctatus(user)
@@ -384,7 +538,17 @@ def add_process_to_cart(request, pk):
         'created_new_calculation': created
     }, status=status.HTTP_201_CREATED)
 
+@swagger_auto_schema(
+    method='put',
+    operation_description="Обновить связь химического процесса в заявке",
+    request_body=ChemicalProcessInCalculationUpdateSerializer,
+    responses={
+        200: ChemicalProcessInCalculationUpdateSerializer,
+        400: 'Validation Error'
+    }
+)
 @api_view(['PUT'])
+@permission_classes([IsOwner])  # Только владелец заявки
 def update_calculation_process(request):
     """
     PUT: Изменение M2M связи (количество, порядок, комментарий)
@@ -396,6 +560,14 @@ def update_calculation_process(request):
     
     calculation_id = serializer.validated_data['calculation_id']
     process_id = serializer.validated_data['process_id']
+    
+    # Ищем заявку и проверяем права
+    calculation = get_object_or_404(ReagentCalculation, pk=calculation_id)
+    if calculation.client != request.user:
+        return Response(
+            {'error': 'Нет прав для изменения этой заявки'}, 
+            status=status.HTTP_403_FORBIDDEN
+        )
     
     # Ищем M2M связь
     m2m_relation = get_object_or_404(
@@ -417,7 +589,17 @@ def update_calculation_process(request):
     
     return Response(update_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+@swagger_auto_schema(
+    method='delete',
+    operation_description="Удалить химический процесс из заявки",
+    request_body=ChemicalProcessInCalculationDeleteSerializer,
+    responses={
+        204: 'No Content',
+        400: 'Validation Error'
+    }
+)
 @api_view(['DELETE'])
+@permission_classes([IsOwner])  # Только владелец заявки
 def delete_calculation_process(request):
     """
     DELETE: Удаление M2M связи (удаление услуги из заявки)
@@ -429,6 +611,14 @@ def delete_calculation_process(request):
     
     calculation_id = serializer.validated_data['calculation_id']
     process_id = serializer.validated_data['process_id']
+    
+    # Ищем заявку и проверяем права
+    calculation = get_object_or_404(ReagentCalculation, pk=calculation_id)
+    if calculation.client != request.user:
+        return Response(
+            {'error': 'Нет прав для изменения этой заявки'}, 
+            status=status.HTTP_403_FORBIDDEN
+        )
     
     # Ищем и удаляем M2M связь
     m2m_relation = get_object_or_404(
@@ -444,7 +634,24 @@ def delete_calculation_process(request):
         status=status.HTTP_204_NO_CONTENT
     )
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Регистрация нового пользователя",
+    request_body=UserRegistrationSerializer,
+    responses={
+        201: openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'message': openapi.Schema(type=openapi.TYPE_STRING),
+                'user_id': openapi.Schema(type=openapi.TYPE_INTEGER)
+            }
+        ),
+        400: 'Validation Error'
+    }
+)
 @api_view(['POST'])
+@permission_classes([AllowAny])
+@authentication_classes([])  # Отключаем аутентификацию для регистрации
 def user_register(request):
     """
     POST: Регистрация - создаем пользователя, но не логиним
@@ -458,13 +665,27 @@ def user_register(request):
         )
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+@swagger_auto_schema(
+    method='get',
+    operation_description="Получить профиль пользователя",
+    responses={200: UserProfileSerializer}
+)
+@swagger_auto_schema(
+    method='put',
+    operation_description="Обновить профиль пользователя",
+    request_body=UserProfileSerializer,
+    responses={
+        200: UserProfileSerializer,
+        400: 'Validation Error'
+    }
+)
 @api_view(['GET', 'PUT'])
+@permission_classes([IsAuthenticated])  # Только авторизованные
 def user_profile(request):
     """
-    GET/PUT: Профиль - работаем с фиксированным пользователем
+    GET/PUT: Профиль - работаем с текущим пользователем
     """
-    # Для демонстрации используем пользователя с ID=1
-    user = User.objects.get(id=1)
+    user = request.user  # Используем текущего пользователя
     
     if request.method == 'GET':
         serializer = UserProfileSerializer(user)
@@ -477,24 +698,127 @@ def user_profile(request):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Аутентификация пользователя с созданием сессии",
+    request_body=UserLoginSerializer,
+    responses={
+        200: openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'message': openapi.Schema(type=openapi.TYPE_STRING),
+                'user_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'username': openapi.Schema(type=openapi.TYPE_STRING),
+                'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                'is_superuser': openapi.Schema(type=openapi.TYPE_BOOLEAN)
+            }
+        ),
+        400: 'Validation Error'
+    }
+)
 @api_view(['POST'])
+@permission_classes([AllowAny])
+@authentication_classes([])  # Отключаем аутентификацию для логина
 def user_login(request):
     """
-    POST: Аутентификация - проверяем учетные данные, но не используем сессии
+    POST: Аутентификация - проверяем учетные данные и создаем сессию
     """
     serializer = UserLoginSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.validated_data['user']
+        login(request, user)  # Создаем сессию
         return Response({
-            'message': 'Учетные данные верны', 
+            'message': 'Успешная аутентификация', 
             'user_id': user.id,
-            'username': user.username
+            'username': user.username,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser
         })
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="Выход пользователя из системы",
+    responses={
+        200: openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'message': openapi.Schema(type=openapi.TYPE_STRING)
+            }
+        )
+    }
+)
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def user_logout(request):
     """
-    POST: Деавторизация - фиктивный метод для демонстрации
+    POST: Деавторизация - удаляем сессию
     """
+    logout(request)
     return Response({'message': 'Выход выполнен'})
+
+@swagger_auto_schema(
+    method='get',
+    operation_description="Просмотр активных сессий в Redis (только для админов)",
+    responses={
+        200: openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'active_sessions_count': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'sessions': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
+            }
+        )
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAdmin])
+def view_redis_sessions(request):
+    """
+    GET: Просмотр активных сессий в Redis - для демонстрации в лабораторной
+    """
+    from django.core.cache import cache
+    from django.contrib.sessions.models import Session
+    import re
+    
+    try:
+        # Получаем все ключи сессий из Redis
+        # Используем низкоуровневый доступ к Redis
+        import django_redis
+        redis_client = django_redis.get_redis_connection("default")
+        
+        # Ищем ключи сессий (они имеют префикс)
+        session_keys = []
+        cursor = 0
+        while True:
+            cursor, keys = redis_client.scan(cursor, match=':1:django.contrib.sessions.cache*', count=100)
+            session_keys.extend(keys)
+            if cursor == 0:
+                break
+        
+        sessions_data = []
+        for key in session_keys:
+            try:
+                # Получаем данные сессии
+                session_data = redis_client.get(key)
+                if session_data:
+                    # Декодируем данные сессии
+                    decoded_data = session_data.decode('utf-8')
+                    sessions_data.append({
+                        'session_key': key.decode('utf-8'),
+                        'data_preview': decoded_data[:100] + '...' if len(decoded_data) > 100 else decoded_data
+                    })
+            except Exception as e:
+                sessions_data.append({
+                    'session_key': key.decode('utf-8') if isinstance(key, bytes) else str(key),
+                    'error': str(e)
+                })
+        
+        return Response({
+            'active_sessions_count': len(sessions_data),
+            'sessions': sessions_data
+        })
+        
+    except Exception as e:
+        return Response({
+            'error': f'Ошибка при получении сессий из Redis: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

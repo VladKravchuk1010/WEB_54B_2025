@@ -14,7 +14,8 @@ from .api_views import (
     user_register,
     user_profile,
     user_logout,
-    user_login
+    user_login,
+    view_redis_sessions
 )
 
 app_name = 'irc_lab_api'
@@ -42,4 +43,7 @@ urlpatterns = [
     path('user/profile/', user_profile, name='user-profile'),
     path('user/login/', user_login, name='user-login'),
     path('user/logout/', user_logout, name='user-logout'),
+
+    # Redis sessions
+    path('redis-sessions/', view_redis_sessions, name='view_redis_sessions'),
 ]
