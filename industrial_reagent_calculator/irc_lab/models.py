@@ -88,8 +88,10 @@ class ChemicalProcessInReagentCalculation(models.Model):
     quantity = models.IntegerField(default=1)
     calculation_result = models.DecimalField(
         max_digits=10, 
-        decimal_places=2
+        decimal_places=2,
+        null=True
     )
+    comment = models.TextField(null=True)
 
     def __str__(self):
         return f"{self.calculation_id}-{self.process_id}"

@@ -4,6 +4,7 @@ from .models import ChemicalProcess, ChemicalProcessInReagentCalculation, Reagen
 from django.contrib.auth.models import User
 from django.db import connection
 from django.http import Http404
+from django.db.models import Sum
 
 def chemical_processes_list(request):
     calculation = get_reagent_calculaion_in_draft_ctatus()
@@ -60,10 +61,14 @@ def request_reagent_calculation(request, calculation_id):
     
     services_with_processes = []
     for item in processes:
+        comment = item.comment
+        if comment is None:
+            comment = ''
         services_with_processes.append({
             'process': item.process,
             'm2m_data': {
                 'quantity': item.quantity,
+                'comment': comment,
                 'calculation_result': item.calculation_result
             }
         })
@@ -133,65 +138,25 @@ def add_chemical_process(request, process_id):
 
     return redirect('chemical_processes')
 
-def calculate_reagents_request(request, calculation_id=None):
-    return redirect('request_reagent_calculation')
-    
-    # if request.method != "POST":
-    #     return redirect('request_calculation')
-    
-    # if calculation_id:
-    #     calculation = ReagentCalculation.objects.get(id=calculation_id, client=User.objects.get(username="student"))
-        
-    # else:
-    #     calculation = ReagentCalculation.objects.filter(
-    #         client=User.objects.get(username="student"),
-    #         status=ReagentCalculation.ReagentCalculationStatus.DRAFT
-    #     ).first()
-        
-    
-    
-    # if not calculation:
-    #     return redirect('request_calculation')
-    
-    # # target_mass = float(request.POST.get('target_mass', 1000))
-    # # safety_factor = float(request.POST.get('safety_factor', 10))
-    
-    # # calculation.target_mass = target_mass
-    # # calculation.safety_factor = safety_factor
-    # calculation.calculation_date = timezone.now().date()
-    # calculation.save()
-    
-    # process_relations = ChemicalProcessInReagentCalculation.objects.filter(calculation=calculation, process__is_active=True)
-    # for relation in process_relations:
-    #     base_mass = (relation.process.input_mass * calculation.target_mass) / 1000
-    #     mass_with_yield = base_mass * (100 / relation.process.yield_percent)
-    #     mass_with_safety = mass_with_yield * (1 + calculation.safety_factor / 100)
-        
-    #     relation.calculation_result = round(mass_with_safety, 2)
-    #     relation.save()
-    
-    # if calculation_id:
-    #     return redirect('request_calculation', calculation_id=calculation_id)
-    # else:
-    #     return redirect('request_calculation')
+def get_reagent_calculaion_in_draft_ctatus(user=None):
 
-def get_reagent_calculaion_in_draft_ctatus():
+    if user is None:
+        user = User.objects.get(username="student")
 
     calculation = ReagentCalculation.objects.filter(
-            client=User.objects.get(username="student"),
+            client=user,
             status=ReagentCalculation.ReagentCalculationStatus.DRAFT
         ).first()
 
     return calculation
 
 def count_processes_in_request(calculation_id):
-    
     if calculation_id == 0:
         return 0
     
-    processes_in_request = ChemicalProcessInReagentCalculation.objects.filter(
+    total_quantity = ChemicalProcessInReagentCalculation.objects.filter(
         calculation__id=calculation_id,
         process__is_active=True,
-    ).count()
-
-    return processes_in_request
+    ).aggregate(total=Sum('quantity'))['total']
+    
+    return total_quantity or 0

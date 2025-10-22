@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from irc_lab import views
 
 urlpatterns = [
@@ -26,5 +26,6 @@ urlpatterns = [
     path('remove_chemical_process/<int:process_id>/', views.remove_chemical_process, name='remove_chemical_process'),
     path('remove_reagent_calculation/<int:calculation_id>/', views.remove_reagent_calculation, name='remove_reagent_calculation'),
     path('add_chemical_process/<int:process_id>/', views.add_chemical_process, name='add_chemical_process'),
-    path('calculate_reagents_request/<int:calculation_id>', views.calculate_reagents_request, name='calculate_reagents_request'),
+    
+    path('api/', include('irc_lab.api_urls')),
 ]
