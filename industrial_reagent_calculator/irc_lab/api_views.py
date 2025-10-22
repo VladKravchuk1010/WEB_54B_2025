@@ -268,6 +268,9 @@ class ReagentCalculationDetail(APIView):
     def get(self, request, pk):
         calculation = get_object_or_404(ReagentCalculation, pk=pk)
         # Permission IsOwnerOrManager автоматически проверит доступ
+
+        self.check_object_permissions(request, calculation)
+
         serializer = ReagentCalculationSerializer(calculation)
         return Response(serializer.data)
     
@@ -283,6 +286,15 @@ class ReagentCalculationDetail(APIView):
         calculation = get_object_or_404(ReagentCalculation, pk=pk)
         # Permission IsOwnerOrManager автоматически проверит доступ
         
+        self.check_object_permissions(request, calculation)
+
+
+        if calculation.client.id != request.user.id and not request.user.is_staff:
+            return Response(
+                {"error": f"Access denied. Calculation owned by user {calculation.client.id}"},
+                status=403
+            )
+
         serializer = ReagentCalculationCreateSerializer(calculation, data=request.data, partial=True)
         
         if serializer.is_valid():
@@ -302,7 +314,8 @@ class ReagentCalculationDetail(APIView):
     def delete(self, request, pk):
         calculation = get_object_or_404(ReagentCalculation, pk=pk)
         # Permission IsOwnerOrManager автоматически проверит доступ
-        
+        self.check_object_permissions(request, calculation)
+
         # Можно удалять только черновики (по заданию)
         if calculation.status != ReagentCalculation.ReagentCalculationStatus.DRAFT:
             return Response(

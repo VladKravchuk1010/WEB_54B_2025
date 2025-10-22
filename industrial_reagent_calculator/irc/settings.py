@@ -147,13 +147,14 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 
 # Настройки сессии
-SESSION_COOKIE_AGE = 3600  # 1 час
+SESSION_COOKIE_AGE = 360000  # 1 час
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = False
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+        'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
