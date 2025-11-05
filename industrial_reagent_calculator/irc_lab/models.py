@@ -71,6 +71,9 @@ class ReagentCalculation(models.Model):
         decimal_places=2, 
         blank=True, null=True
     )
+    results_quantity = models.IntegerField(
+        null=True
+    )
 
     def __str__(self):
         return f"Расчет № {self.id}"

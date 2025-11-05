@@ -435,6 +435,10 @@ def calculation_complete(request, pk):
         # Расчет общей массы реагентов (формула из лабораторной 2)
         total_input_mass = calculate_total_input_mass(calculation)
         calculation.total_input_mass = total_input_mass
+        calculation.results_quantity = ChemicalProcessInReagentCalculation.objects.filter(
+                calculation__id=calculation.id,
+                process__is_active=True,
+            ).aggregate(total=Sum('quantity'))['total']
         
     else:  # reject
         calculation.status = ReagentCalculation.ReagentCalculationStatus.REJECTED
@@ -513,8 +517,8 @@ def add_process_to_cart(request, pk):
         calculation = ReagentCalculation.objects.create(
             client=user,
             status=ReagentCalculation.ReagentCalculationStatus.DRAFT,
-            target_mass=1000,
-            safety_factor=10, 
+            target_mass=0,
+            safety_factor=0, 
             calculation_date=timezone.now().date()
         )
         created = True
@@ -770,20 +774,20 @@ def user_logout(request):
     logout(request)
     return Response({'message': 'Выход выполнен'})
 
-@swagger_auto_schema(
-    method='get',
-    operation_description="Просмотр активных сессий в Redis (только для админов)",
-    responses={
-        200: openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'active_sessions_count': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'sessions': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
-            }
-        )
-    }
-)
-@api_view(['GET'])
+# @swagger_auto_schema(
+#     method='get',
+#     operation_description="Просмотр активных сессий в Redis (только для админов)",
+#     responses={
+#         200: openapi.Schema(
+#             type=openapi.TYPE_OBJECT,
+#             properties={
+#                 'active_sessions_count': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                 'sessions': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
+#             }
+#         )
+#     }
+# )
+# @api_view(['GET'])
 @permission_classes([IsAdmin])
 def view_redis_sessions(request):
     """

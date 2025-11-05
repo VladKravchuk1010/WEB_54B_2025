@@ -66,6 +66,24 @@ class ReagentCalculationSerializer(serializers.ModelSerializer):
             'completion_datetime', 'client', 'manager', 'total_input_mass'
         ]
 
+class ReagentCalculationSerializer(serializers.ModelSerializer):
+    """Сериализатор для заявки без услуг"""
+    client_username = serializers.CharField(source='client.username', read_only=True)
+    manager_username = serializers.CharField(source='manager.username', read_only=True)
+
+    class Meta:
+        model = ReagentCalculation
+        fields = [
+            'id', 'status', 'creation_datetime', 'formation_datetime', 
+            'completion_datetime', 'client', 'client_username', 'manager', 
+            'manager_username', 'target_mass', 'safety_factor', 
+            'calculation_date', 'total_input_mass', 'results_quantity'
+        ]
+        read_only_fields = [
+            'id', 'status', 'creation_datetime', 'formation_datetime',
+            'completion_datetime', 'client', 'manager', 'total_input_mass'
+        ]
+
 class ReagentCalculationCreateSerializer(serializers.ModelSerializer):
     """Сериализатор для создания/изменения заявки"""
     class Meta:
