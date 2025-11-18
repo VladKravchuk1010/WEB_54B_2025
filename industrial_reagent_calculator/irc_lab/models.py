@@ -94,7 +94,6 @@ class ChemicalProcessInReagentCalculation(models.Model):
         decimal_places=2,
         null=True
     )
-    comment = models.TextField(null=True)
 
     def __str__(self):
         return f"{self.calculation_id}-{self.process_id}"

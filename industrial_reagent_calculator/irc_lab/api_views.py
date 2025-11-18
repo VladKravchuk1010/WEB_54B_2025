@@ -33,17 +33,20 @@ from drf_yasg import openapi
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
 from .permissions import IsManager, IsAdmin, IsOwner, IsOwnerOrManager
 
+from .authentication import get_redis_connection, LUA_SCRIPTS, time, LuaSessionAuthentication
+
 class ChemicalProcessList(APIView):
     """
     GET: Список услуг с фильтрацией
     POST: Добавление новой услуги (без изображения)
     """
+    authentication_classes = [LuaSessionAuthentication]
     permission_classes = [IsAuthenticatedOrReadOnly]
-    
+
     @swagger_auto_schema(
         operation_description="Получить список химических процессов с фильтрацией",
         manual_parameters=[
-            openapi.Parameter('search', openapi.IN_QUERY, description="Поиск по названию", type=openapi.TYPE_STRING),
+            openapi.Parameter('X-Session-Key', openapi.IN_HEADER, description="Session Key", type=openapi.TYPE_STRING),
         ],
         responses={200: ChemicalProcessSerializer(many=True)}
     )
@@ -90,6 +93,7 @@ class ChemicalProcessDetail(APIView):
     DELETE: Удаление услуги (с удалением изображения)
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
+    authentication_classes = [LuaSessionAuthentication]
     
     @swagger_auto_schema(
         operation_description="Получить детали химического процесса по ID",
@@ -177,7 +181,8 @@ class CartIconView(APIView):
     GET: Иконка корзины - возвращает id заявки-черновика и количество услуг
     """
     permission_classes = [IsAuthenticated]  # Только авторизованные
-    
+    authentication_classes = [LuaSessionAuthentication]
+
     @swagger_auto_schema(
         operation_description="Получить информацию о корзине (количество процессов в черновике)",
         responses={200: CartIconSerializer}
@@ -209,7 +214,8 @@ class ReagentCalculationList(APIView):
     GET: Список заявок (кроме удаленных и черновика) с фильтрацией
     """
     permission_classes = [IsAuthenticated]  # Только авторизованные
-    
+    authentication_classes = [LuaSessionAuthentication]
+
     @swagger_auto_schema(
         operation_description="Получить список заявок на расчет реагентов",
         manual_parameters=[
@@ -260,7 +266,8 @@ class ReagentCalculationDetail(APIView):
     DELETE: Удаление заявки
     """
     permission_classes = [IsOwnerOrManager]  # Владелец ИЛИ менеджер
-    
+    authentication_classes = [LuaSessionAuthentication]
+
     @swagger_auto_schema(
         operation_description="Получить детали заявки на расчет реагентов",
         responses={200: ReagentCalculationSerializer}
@@ -337,6 +344,7 @@ class ReagentCalculationDetail(APIView):
 )
 @api_view(['PUT'])
 @permission_classes([IsOwner])  # Только владелец может формировать свою заявку
+@authentication_classes([LuaSessionAuthentication])
 def calculation_form(request, pk):
     """
     PUT: Сформировать заявку создателем
@@ -401,6 +409,7 @@ def calculation_form(request, pk):
 )
 @api_view(['PUT'])
 @permission_classes([IsManager])  # Только менеджеры могут завершать заявки
+@authentication_classes([LuaSessionAuthentication])
 def calculation_complete(request, pk):
     """
     PUT: Завершить/отклонить заявку модератором
@@ -496,6 +505,7 @@ def calculate_total_input_mass(calculation):
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])  # Только авторизованные
+@authentication_classes([LuaSessionAuthentication])
 def add_process_to_cart(request, pk):
     """
     POST: Добавление услуги в заявку-черновик
@@ -566,6 +576,7 @@ def add_process_to_cart(request, pk):
 )
 @api_view(['PUT'])
 @permission_classes([IsOwner])  # Только владелец заявки
+@authentication_classes([LuaSessionAuthentication])
 def update_calculation_process(request):
     """
     PUT: Изменение M2M связи (количество, порядок, комментарий)
@@ -617,6 +628,7 @@ def update_calculation_process(request):
 )
 @api_view(['DELETE'])
 @permission_classes([IsOwner])  # Только владелец заявки
+@authentication_classes([LuaSessionAuthentication])
 def delete_calculation_process(request):
     """
     DELETE: Удаление M2M связи (удаление услуги из заявки)
@@ -698,6 +710,7 @@ def user_register(request):
 )
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated])  # Только авторизованные
+@authentication_classes([LuaSessionAuthentication])
 def user_profile(request):
     """
     GET/PUT: Профиль - работаем с текущим пользователем
@@ -717,7 +730,7 @@ def user_profile(request):
 
 @swagger_auto_schema(
     method='post',
-    operation_description="Аутентификация пользователя с созданием сессии",
+    operation_description="Аутентификация пользователя с созданием Lua-сессии",
     request_body=UserLoginSerializer,
     responses={
         200: openapi.Schema(
@@ -726,6 +739,7 @@ def user_profile(request):
                 'message': openapi.Schema(type=openapi.TYPE_STRING),
                 'user_id': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'username': openapi.Schema(type=openapi.TYPE_STRING),
+                'session_key': openapi.Schema(type=openapi.TYPE_STRING),
                 'is_staff': openapi.Schema(type=openapi.TYPE_BOOLEAN),
                 'is_superuser': openapi.Schema(type=openapi.TYPE_BOOLEAN)
             }
@@ -735,107 +749,95 @@ def user_profile(request):
 )
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@authentication_classes([])  # Отключаем аутентификацию для логина
+@authentication_classes([])
 def user_login(request):
     """
-    POST: Аутентификация - проверяем учетные данные и создаем сессию
+    POST: Аутентификация - создаем только Lua-сессию
     """
     serializer = UserLoginSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.validated_data['user']
-        login(request, user)  # Создаем сессию
+        
+        # СОЗДАЕМ LUA-СЕССИЮ (без Django сессии)
+        try:
+            redis_client = get_redis_connection("default")
+            create_session_script = redis_client.register_script(LUA_SCRIPTS['create_user_session'])
+            timestamp = str(int(time.time()))
+            session_key = create_session_script(keys=[], args=[str(user.id), user.username, timestamp])
+            session_key_str = session_key.decode('utf-8') if isinstance(session_key, bytes) else session_key
+        except Exception as e:
+            return Response({
+                'error': f'Ошибка создания сессии: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
         return Response({
             'message': 'Успешная аутентификация', 
             'user_id': user.id,
             'username': user.username,
+            'session_key': session_key_str,  # ← Клиент сохраняет этот ключ
             'is_staff': user.is_staff,
-            'is_superuser': user.is_superuser
+            'is_superuser': user.is_superuser,
+            'expires_in': 3600  # 1 час
         })
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @swagger_auto_schema(
     method='post',
-    operation_description="Выход пользователя из системы",
+    operation_description="Выход пользователя с удалением Lua-сессии",
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'session_key': openapi.Schema(type=openapi.TYPE_STRING)
+        }
+    ),
     responses={
         200: openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
-                'message': openapi.Schema(type=openapi.TYPE_STRING)
+                'message': openapi.Schema(type=openapi.TYPE_STRING),
+                'deleted_sessions': openapi.Schema(type=openapi.TYPE_INTEGER)
             }
         )
     }
 )
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])  # Разрешаем всем, т.к. сессия может быть невалидной
+@authentication_classes([])
 def user_logout(request):
     """
-    POST: Деавторизация - удаляем сессию
+    POST: Деавторизация - удаляем только Lua-сессии
     """
-    logout(request)
-    return Response({'message': 'Выход выполнен'})
-
-# @swagger_auto_schema(
-#     method='get',
-#     operation_description="Просмотр активных сессий в Redis (только для админов)",
-#     responses={
-#         200: openapi.Schema(
-#             type=openapi.TYPE_OBJECT,
-#             properties={
-#                 'active_sessions_count': openapi.Schema(type=openapi.TYPE_INTEGER),
-#                 'sessions': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
-#             }
-#         )
-#     }
-# )
-# @api_view(['GET'])
-@permission_classes([IsAdmin])
-def view_redis_sessions(request):
-    """
-    GET: Просмотр активных сессий в Redis - для демонстрации в лабораторной
-    """
-    from django.core.cache import cache
-    from django.contrib.sessions.models import Session
-    import re
+    session_key = request.data.get('session_key')
+    user_id = request.data.get('user_id')
     
+    if not session_key and not user_id:
+        return Response({
+            'error': 'Необходим session_key или user_id'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    deleted_count = 0
     try:
-        # Получаем все ключи сессий из Redis
-        # Используем низкоуровневый доступ к Redis
-        import django_redis
-        redis_client = django_redis.get_redis_connection("default")
+        redis_client = get_redis_connection("default")
         
-        # Ищем ключи сессий (они имеют префикс)
-        session_keys = []
-        cursor = 0
-        while True:
-            cursor, keys = redis_client.scan(cursor, match=':1:django.contrib.sessions.cache*', count=100)
-            session_keys.extend(keys)
-            if cursor == 0:
-                break
+        if user_id:
+            # Удаляем все сессии пользователя
+            delete_sessions_script = redis_client.register_script(LUA_SCRIPTS['delete_user_sessions'])
+            deleted_count = delete_sessions_script(keys=[], args=[str(user_id)])
+        elif session_key:
+            # Удаляем конкретную сессию
+            redis_client.delete(session_key)
+            deleted_count = 1
         
-        sessions_data = []
-        for key in session_keys:
-            try:
-                # Получаем данные сессии
-                session_data = redis_client.get(key)
-                if session_data:
-                    # Декодируем данные сессии
-                    decoded_data = session_data.decode('utf-8')
-                    sessions_data.append({
-                        'session_key': key.decode('utf-8'),
-                        'data_preview': decoded_data[:100] + '...' if len(decoded_data) > 100 else decoded_data
-                    })
-            except Exception as e:
-                sessions_data.append({
-                    'session_key': key.decode('utf-8') if isinstance(key, bytes) else str(key),
-                    'error': str(e)
-                })
+        deleted_count_int = int(deleted_count) if deleted_count else 0
         
         return Response({
-            'active_sessions_count': len(sessions_data),
-            'sessions': sessions_data
+            'message': 'Выход выполнен', 
+            'deleted_sessions': deleted_count_int,
+            'user_id': user_id,
+            'session_key': session_key
         })
         
     except Exception as e:
         return Response({
-            'error': f'Ошибка при получении сессий из Redis: {str(e)}'
+            'error': f'Ошибка выхода: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

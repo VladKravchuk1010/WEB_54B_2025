@@ -14,8 +14,7 @@ from .api_views import (
     user_register,
     user_profile,
     user_logout,
-    user_login,
-    view_redis_sessions
+    user_login
 )
 
 app_name = 'irc_lab_api'
@@ -28,7 +27,7 @@ urlpatterns = [
     path('chemical-processes/<int:pk>/add-to-cart/', add_process_to_cart, name='add-to-cart'),
 
     # ReagentCalculation endpoints
-    path('cart-icon/', CartIconView.as_view(), name='cart-icon'),
+    path('reagent_calculations/cart-icon/', CartIconView.as_view(), name='cart-icon'),
     path('reagent_calculations/', ReagentCalculationList.as_view(), name='calculation-list'),
     path('reagent_calculations/<int:pk>/', ReagentCalculationDetail.as_view(), name='calculation-detail'),
     path('reagent_calculations/<int:pk>/form/', calculation_form, name='calculation-form'),
@@ -43,7 +42,4 @@ urlpatterns = [
     path('user/profile/', user_profile, name='user-profile'),
     path('user/login/', user_login, name='user-login'),
     path('user/logout/', user_logout, name='user-logout'),
-
-    # Redis sessions
-    path('redis-sessions/', view_redis_sessions, name='view_redis_sessions'),
 ]

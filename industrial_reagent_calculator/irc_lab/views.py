@@ -61,14 +61,10 @@ def request_reagent_calculation(request, calculation_id):
     
     services_with_processes = []
     for item in processes:
-        comment = item.comment
-        if comment is None:
-            comment = ''
         services_with_processes.append({
             'process': item.process,
             'm2m_data': {
                 'quantity': item.quantity,
-                'comment': comment,
                 'calculation_result': item.calculation_result
             }
         })
