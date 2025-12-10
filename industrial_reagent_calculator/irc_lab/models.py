@@ -43,14 +43,16 @@ class ReagentCalculation(models.Model):
     creation_datetime = models.DateTimeField(auto_now_add=True)
     formation_datetime = models.DateTimeField(blank=True, null=True)
     completion_datetime = models.DateTimeField(blank=True, null=True)
+    
     client = models.ForeignKey(
         User, 
-        on_delete=models.DO_NOTHING, 
+        on_delete=models.PROTECT, 
         related_name='created_calculations'
     )
+    
     manager = models.ForeignKey(
         User, 
-        on_delete=models.DO_NOTHING, 
+        on_delete=models.SET_NULL, 
         related_name='managed_calculations', 
         blank=True, null=True
     )
@@ -64,8 +66,8 @@ class ReagentCalculation(models.Model):
         decimal_places=2,
         default=10
     )
-    calculation_date = models.DateField(
-    )
+    calculation_date = models.DateField()
+    
     total_input_mass = models.DecimalField(
         max_digits=12, 
         decimal_places=2, 
@@ -89,6 +91,7 @@ class ChemicalProcessInReagentCalculation(models.Model):
         )
     
     quantity = models.IntegerField(default=1)
+    
     calculation_result = models.DecimalField(
         max_digits=10, 
         decimal_places=2,

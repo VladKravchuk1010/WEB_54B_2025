@@ -31,6 +31,7 @@ ALLOWED_HOSTS = ["*"]
 # Application definition
 
 INSTALLED_APPS = [
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -50,7 +52,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'irc_lab.middleware.LuaSessionMiddleware',
 ]
 
 ROOT_URLCONF = 'irc.urls'
@@ -172,3 +173,43 @@ REST_FRAMEWORK = {
     #     'rest_framework.authentication.BasicAuthentication',
     # ],
 }
+
+CORS_ALLOW_ALL_ORIGINS = True  # Разрешить все домены (для разработки)
+
+# ИЛИ более безопасный вариант - указать конкретные домены:
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",    # Локальный фронтенд
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",    # Vite dev server
+    "http://127.0.0.1:5173",
+    "http://0.0.0.0:3000",
+    "http://0.0.0.0:5173",
+    "http://172.20.10.2:3000",  # Ваш IP
+    "http://172.20.10.3:3000",
+    "https://vladkravchuk1010.github.io",  # GitHub Pages
+]
+
+# Разрешить учетные данные (cookies, авторизация)
+CORS_ALLOW_CREDENTIALS = True
+
+# Разрешенные методы
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]

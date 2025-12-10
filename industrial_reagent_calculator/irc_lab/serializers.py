@@ -39,12 +39,15 @@ class ChemicalProcessInCalculationSerializer(serializers.ModelSerializer):
         model = ChemicalProcessInReagentCalculation
         fields = [
             'id', 'calculation', 'process', 'process_name', 'process_image',
-            'quantity', 'comment', 'calculation_result'
+            'quantity', 'calculation_result'  # УБРАНО поле 'comment', его нет в модели
         ]
         read_only_fields = ['id', 'calculation']
 
-class ReagentCalculationSerializer(serializers.ModelSerializer):
-    """Сериализатор для заявки с вложенными услугами"""
+class ReagentCalculationDetailSerializer(serializers.ModelSerializer):
+    """
+    ДЕТАЛЬНЫЙ Сериализатор (с вложенными услугами).
+    Используется для просмотра одной заявки.
+    """
     processes = ChemicalProcessInCalculationSerializer(
         source='chemicalprocessinreagentcalculation_set', 
         many=True, 
@@ -66,8 +69,11 @@ class ReagentCalculationSerializer(serializers.ModelSerializer):
             'completion_datetime', 'client', 'manager', 'total_input_mass'
         ]
 
-class ReagentCalculationSerializer(serializers.ModelSerializer):
-    """Сериализатор для заявки без услуг"""
+class ReagentCalculationListSerializer(serializers.ModelSerializer):
+    """
+    СПИСОЧНЫЙ Сериализатор (без тяжелых вложенных данных).
+    Используется для вывода списка заявок.
+    """
     client_username = serializers.CharField(source='client.username', read_only=True)
     manager_username = serializers.CharField(source='manager.username', read_only=True)
 
@@ -101,7 +107,7 @@ class ChemicalProcessInCalculationUpdateSerializer(serializers.ModelSerializer):
     """Сериализатор для изменения M2M связи"""
     class Meta:
         model = ChemicalProcessInReagentCalculation
-        fields = ['quantity', 'comment', 'calculation_result']
+        fields = ['quantity', 'calculation_result'] # УБРАНО поле 'comment'
 
 class ChemicalProcessInCalculationDeleteSerializer(serializers.Serializer):
     """Сериализатор для удаления M2M связи"""
@@ -111,11 +117,11 @@ class ChemicalProcessInCalculationDeleteSerializer(serializers.Serializer):
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
     password_confirm = serializers.CharField(write_only=True)
-    is_staff = serializers.BooleanField(default=False, required=False)  # Добавляем
+    # УБРАНО поле is_staff для безопасности
     
     class Meta:
         model = User
-        fields = ['username', 'email', 'first_name', 'last_name', 'password', 'password_confirm', 'is_staff']
+        fields = ['username', 'email', 'first_name', 'last_name', 'password', 'password_confirm']
     
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
@@ -128,11 +134,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         validated_data.pop('password_confirm')
-        is_staff = validated_data.pop('is_staff', False)
-        
+        # Создаем обычного пользователя
         user = User.objects.create_user(**validated_data)
-        user.is_staff = is_staff  # Устанавливаем права менеджера
-        user.save()
         return user
 
 class UserProfileSerializer(serializers.ModelSerializer):

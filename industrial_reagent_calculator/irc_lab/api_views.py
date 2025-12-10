@@ -9,19 +9,19 @@ from .models import ChemicalProcess, ReagentCalculation, ChemicalProcessInReagen
 from django.contrib.auth.models import User
 from django.db.models import Sum
 from .views import get_reagent_calculaion_in_draft_ctatus
-from django.contrib.auth import login, logout, authenticate
 from .serializers import (
     ChemicalProcessInCalculationDeleteSerializer,
     ChemicalProcessInCalculationUpdateSerializer,
-    ChemicalProcessSerializer, 
+    ChemicalProcessSerializer,
     ChemicalProcessCreateSerializer,
     ChemicalProcessImageSerializer,
-    ReagentCalculationSerializer, 
+    ReagentCalculationListSerializer,    # NEW
+    ReagentCalculationDetailSerializer,  # NEW
     ReagentCalculationCreateSerializer,
     CartIconSerializer,
     ChemicalProcessInCalculationSerializer,
     UserRegistrationSerializer,
-    UserProfileSerializer, 
+    UserProfileSerializer,
     UserLoginSerializer
 )
 
@@ -33,37 +33,58 @@ from drf_yasg import openapi
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
 from .permissions import IsManager, IsAdmin, IsOwner, IsOwnerOrManager
 
-from .authentication import get_redis_connection, LUA_SCRIPTS, time, LuaSessionAuthentication
+from .authentication import get_redis_connection, create_user_session, destroy_session, LuaSessionAuthentication
+
 
 class ChemicalProcessList(APIView):
     """
-    GET: Список услуг с фильтрацией
-    POST: Добавление новой услуги (без изображения)
+    GET: Список услуг с фильтрацией (поиск, диапазон масс)
+    POST: Добавление новой услуги
     """
     authentication_classes = [LuaSessionAuthentication]
+    # Разрешаем чтение всем (даже гостям), изменение - только авторизованным
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     @swagger_auto_schema(
         operation_description="Получить список химических процессов с фильтрацией",
         manual_parameters=[
-            openapi.Parameter('X-Session-Key', openapi.IN_HEADER, description="Session Key", type=openapi.TYPE_STRING),
+            openapi.Parameter('search', openapi.IN_QUERY,
+                              description="Поиск по названию", type=openapi.TYPE_STRING),
+            openapi.Parameter('min_mass', openapi.IN_QUERY,
+                              description="Мин. входная масса", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('max_mass', openapi.IN_QUERY,
+                              description="Макс. входная масса", type=openapi.TYPE_NUMBER),
         ],
         responses={200: ChemicalProcessSerializer(many=True)}
     )
     def get(self, request):
-        # Фильтрация - только активные услуги
-        processes = ChemicalProcess.objects.filter(is_active=True)
-        
-        # Фильтрация по названию (если передан параметр search)
-        search_query = request.GET.get('search', '')
+        # Базовый запрос - только активные услуги
+        queryset = ChemicalProcess.objects.filter(is_active=True)
+
+        # 1. Фильтрация по названию (search)
+        search_query = request.query_params.get('search')
         if search_query:
-            processes = processes.filter(
-                Q(name__istartswith=search_query)
-            )
-        
-        serializer = ChemicalProcessSerializer(processes, many=True)
+            queryset = queryset.filter(Q(name__istartswith=search_query))
+
+        # 2. Фильтрация по диапазону массы (аналог цены)
+        min_mass = request.query_params.get('min_mass')
+        max_mass = request.query_params.get('max_mass')
+
+        if min_mass:
+            try:
+                queryset = queryset.filter(input_mass__gte=float(min_mass))
+            except ValueError:
+                pass
+
+        if max_mass:
+            try:
+                queryset = queryset.filter(input_mass__lte=float(max_mass))
+            except ValueError:
+                pass
+
+        serializer = ChemicalProcessSerializer(queryset, many=True)
         return Response(serializer.data)
-    
+
     @swagger_auto_schema(
         operation_description="Создать новый химический процесс",
         request_body=ChemicalProcessCreateSerializer,
@@ -76,15 +97,16 @@ class ChemicalProcessList(APIView):
         # Проверка прав - только менеджеры и админы могут создавать процессы
         if not (request.user.is_staff or request.user.is_superuser):
             return Response(
-                {'error': 'Недостаточно прав для создания химического процесса'}, 
+                {'error': 'Недостаточно прав для создания химического процесса'},
                 status=status.HTTP_403_FORBIDDEN
             )
-            
+
         serializer = ChemicalProcessCreateSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class ChemicalProcessDetail(APIView):
     """
@@ -94,7 +116,7 @@ class ChemicalProcessDetail(APIView):
     """
     permission_classes = [IsAuthenticatedOrReadOnly]
     authentication_classes = [LuaSessionAuthentication]
-    
+
     @swagger_auto_schema(
         operation_description="Получить детали химического процесса по ID",
         responses={200: ChemicalProcessSerializer}
@@ -103,7 +125,7 @@ class ChemicalProcessDetail(APIView):
         process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
         serializer = ChemicalProcessSerializer(process)
         return Response(serializer.data)
-    
+
     @swagger_auto_schema(
         operation_description="Обновить химический процесс",
         request_body=ChemicalProcessCreateSerializer,
@@ -116,17 +138,18 @@ class ChemicalProcessDetail(APIView):
         # Проверка прав - только менеджеры и админы могут изменять процессы
         if not (request.user.is_staff or request.user.is_superuser):
             return Response(
-                {'error': 'Недостаточно прав для изменения химического процесса'}, 
+                {'error': 'Недостаточно прав для изменения химического процесса'},
                 status=status.HTTP_403_FORBIDDEN
             )
-            
+
         process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
-        serializer = ChemicalProcessCreateSerializer(process, data=request.data, partial=True)
+        serializer = ChemicalProcessCreateSerializer(
+            process, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @swagger_auto_schema(
         operation_description="Удалить химический процесс (деактивация)",
         responses={204: 'No Content'}
@@ -135,14 +158,15 @@ class ChemicalProcessDetail(APIView):
         # Проверка прав - только менеджеры и админы могут удалять процессы
         if not (request.user.is_staff or request.user.is_superuser):
             return Response(
-                {'error': 'Недостаточно прав для удаления химического процесса'}, 
+                {'error': 'Недостаточно прав для удаления химического процесса'},
                 status=status.HTTP_403_FORBIDDEN
             )
-            
+
         process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
         process.is_active = False
         process.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 @swagger_auto_schema(
     method='post',
@@ -161,20 +185,22 @@ def chemical_process_upload_image(request, pk):
     # Проверка прав - только менеджеры и админы
     if not (request.user.is_staff or request.user.is_superuser):
         return Response(
-            {'error': 'Недостаточно прав для загрузки изображений'}, 
+            {'error': 'Недостаточно прав для загрузки изображений'},
             status=status.HTTP_403_FORBIDDEN
         )
-        
+
     process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
-    
+
     # TODO: Здесь будет логика загрузки в Minio
     # Пока просто сохраняем URL или файл
-    
-    serializer = ChemicalProcessImageSerializer(process, data=request.data, partial=True)
+
+    serializer = ChemicalProcessImageSerializer(
+        process, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
         return Response(serializer.data)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class CartIconView(APIView):
     """
@@ -189,25 +215,26 @@ class CartIconView(APIView):
     )
     def get(self, request):
         user = request.user
-        
+
         # Ищем заявку в статусе DRAFT для этого пользователя
         draft_calculation = get_reagent_calculaion_in_draft_ctatus(user)
-        
+
         processes_count = 0
         calculation_id = None
-        
+
         if draft_calculation:
             calculation_id = draft_calculation.id
             processes_count = ChemicalProcessInReagentCalculation.objects.filter(
                 calculation=draft_calculation
             ).count()
-        
+
         serializer = CartIconSerializer({
             'calculation_id': calculation_id,
             'processes_count': processes_count
         })
-        
+
         return Response(serializer.data)
+
 
 class ReagentCalculationList(APIView):
     """
@@ -219,11 +246,15 @@ class ReagentCalculationList(APIView):
     @swagger_auto_schema(
         operation_description="Получить список заявок на расчет реагентов",
         manual_parameters=[
-            openapi.Parameter('status', openapi.IN_QUERY, description="Фильтр по статусу", type=openapi.TYPE_STRING),
-            openapi.Parameter('date_from', openapi.IN_QUERY, description="Дата от (YYYY-MM-DD)", type=openapi.TYPE_STRING),
-            openapi.Parameter('date_to', openapi.IN_QUERY, description="Дата до (YYYY-MM-DD)", type=openapi.TYPE_STRING),
+            openapi.Parameter('status', openapi.IN_QUERY,
+                              description="Фильтр по статусу", type=openapi.TYPE_STRING),
+            openapi.Parameter('date_from', openapi.IN_QUERY,
+                              description="Дата от (YYYY-MM-DD)", type=openapi.TYPE_STRING),
+            openapi.Parameter('date_to', openapi.IN_QUERY,
+                              description="Дата до (YYYY-MM-DD)", type=openapi.TYPE_STRING),
         ],
-        responses={200: ReagentCalculationSerializer(many=True)}
+        # UPDATED: Используем ListSerializer
+        responses={200: ReagentCalculationListSerializer(many=True)}
     )
     def get(self, request):
         # Базовый queryset - исключаем удаленные и черновики
@@ -233,7 +264,7 @@ class ReagentCalculationList(APIView):
                 ReagentCalculation.ReagentCalculationStatus.DRAFT
             ]
         )
-        
+
         # Разные права доступа для разных ролей
         if request.user.is_staff or request.user.is_superuser:
             # Менеджеры и админы видят все заявки
@@ -241,23 +272,27 @@ class ReagentCalculationList(APIView):
         else:
             # Обычные пользователи видят только свои заявки
             calculations = base_queryset.filter(client=request.user)
-        
+
         # Фильтрация по статусу
         status_filter = request.GET.get('status', '')
         if status_filter:
             calculations = calculations.filter(status=status_filter)
-        
+
         # Фильтрация по диапазону даты формирования
         date_from = request.GET.get('date_from', '')
         date_to = request.GET.get('date_to', '')
-        
+
         if date_from:
-            calculations = calculations.filter(formation_datetime__date__gte=date_from)
+            calculations = calculations.filter(
+                formation_datetime__date__gte=date_from)
         if date_to:
-            calculations = calculations.filter(formation_datetime__date__lte=date_to)
-        
-        serializer = ReagentCalculationSerializer(calculations, many=True)
+            calculations = calculations.filter(
+                formation_datetime__date__lte=date_to)
+
+        # UPDATED: Используем ListSerializer
+        serializer = ReagentCalculationListSerializer(calculations, many=True)
         return Response(serializer.data)
+
 
 class ReagentCalculationDetail(APIView):
     """
@@ -270,7 +305,8 @@ class ReagentCalculationDetail(APIView):
 
     @swagger_auto_schema(
         operation_description="Получить детали заявки на расчет реагентов",
-        responses={200: ReagentCalculationSerializer}
+        # UPDATED: Используем DetailSerializer
+        responses={200: ReagentCalculationDetailSerializer}
     )
     def get(self, request, pk):
         calculation = get_object_or_404(ReagentCalculation, pk=pk)
@@ -278,23 +314,24 @@ class ReagentCalculationDetail(APIView):
 
         self.check_object_permissions(request, calculation)
 
-        serializer = ReagentCalculationSerializer(calculation)
+        # UPDATED: Используем DetailSerializer
+        serializer = ReagentCalculationDetailSerializer(calculation)
         return Response(serializer.data)
-    
+
     @swagger_auto_schema(
         operation_description="Обновить заявку на расчет реагентов",
         request_body=ReagentCalculationCreateSerializer,
         responses={
-            200: ReagentCalculationSerializer,
+            # UPDATED: Возвращаем полную детализацию
+            200: ReagentCalculationDetailSerializer,
             400: 'Validation Error'
         }
     )
     def put(self, request, pk):
         calculation = get_object_or_404(ReagentCalculation, pk=pk)
         # Permission IsOwnerOrManager автоматически проверит доступ
-        
-        self.check_object_permissions(request, calculation)
 
+        self.check_object_permissions(request, calculation)
 
         if calculation.client.id != request.user.id and not request.user.is_staff:
             return Response(
@@ -302,15 +339,16 @@ class ReagentCalculationDetail(APIView):
                 status=403
             )
 
-        serializer = ReagentCalculationCreateSerializer(calculation, data=request.data, partial=True)
-        
+        serializer = ReagentCalculationCreateSerializer(
+            calculation, data=request.data, partial=True)
+
         if serializer.is_valid():
             serializer.save()
-            # Возвращаем полные данные заявки
-            full_serializer = ReagentCalculationSerializer(calculation)
+            # UPDATED: Возвращаем полные данные заявки через DetailSerializer
+            full_serializer = ReagentCalculationDetailSerializer(calculation)
             return Response(full_serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @swagger_auto_schema(
         operation_description="Удалить заявку на расчет реагентов",
         responses={
@@ -326,19 +364,21 @@ class ReagentCalculationDetail(APIView):
         # Можно удалять только черновики (по заданию)
         if calculation.status != ReagentCalculation.ReagentCalculationStatus.DRAFT:
             return Response(
-                {'error': 'Можно удалять только заявки в статусе черновика'}, 
+                {'error': 'Можно удалять только заявки в статусе черновика'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         calculation.status = ReagentCalculation.ReagentCalculationStatus.DELETED
         calculation.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 @swagger_auto_schema(
     method='put',
     operation_description="Сформировать заявку (изменить статус DRAFT → FORMED)",
     responses={
-        200: ReagentCalculationSerializer,
+        # UPDATED: DetailSerializer
+        200: ReagentCalculationDetailSerializer,
         400: 'Validation Error'
     }
 )
@@ -352,46 +392,48 @@ def calculation_form(request, pk):
     """
     calculation = get_object_or_404(ReagentCalculation, pk=pk)
     # Permission IsOwner автоматически проверит что request.user == calculation.client
-    
+
     # Проверяем, что заявка в статусе черновика
     if calculation.status != ReagentCalculation.ReagentCalculationStatus.DRAFT:
         return Response(
-            {'error': 'Можно формировать только заявки в статусе черновика'}, 
+            {'error': 'Можно формировать только заявки в статусе черновика'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     # Проверка обязательных полей
     required_fields = ['target_mass', 'safety_factor', 'calculation_date']
     missing_fields = []
-    
+
     for field in required_fields:
         if not getattr(calculation, field):
             missing_fields.append(field)
-    
+
     if missing_fields:
         return Response(
-            {'error': f'Обязательные поля не заполнены: {", ".join(missing_fields)}'}, 
+            {'error': f'Обязательные поля не заполнены: {", ".join(missing_fields)}'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     # Проверяем, что в заявке есть хотя бы одна услуга
     processes_count = ChemicalProcessInReagentCalculation.objects.filter(
         calculation=calculation
     ).count()
-    
+
     if processes_count == 0:
         return Response(
-            {'error': 'Нельзя сформировать пустую заявку. Добавьте хотя бы одну услугу.'}, 
+            {'error': 'Нельзя сформировать пустую заявку. Добавьте хотя бы одну услугу.'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     # Меняем статус и проставляем дату формирования
     calculation.status = ReagentCalculation.ReagentCalculationStatus.FORMED
     calculation.formation_datetime = timezone.now()
     calculation.save()
-    
-    serializer = ReagentCalculationSerializer(calculation)
+
+    # UPDATED: DetailSerializer
+    serializer = ReagentCalculationDetailSerializer(calculation)
     return Response(serializer.data)
+
 
 @swagger_auto_schema(
     method='put',
@@ -403,7 +445,8 @@ def calculation_form(request, pk):
         }
     ),
     responses={
-        200: ReagentCalculationSerializer,
+        # UPDATED: DetailSerializer
+        200: ReagentCalculationDetailSerializer,
         400: 'Validation Error'
     }
 )
@@ -417,48 +460,50 @@ def calculation_complete(request, pk):
     Расчет total_input_mass при завершении
     """
     calculation = get_object_or_404(ReagentCalculation, pk=pk)
-    
+
     # Проверяем, что заявка в статусе "Сформирована"
     if calculation.status != ReagentCalculation.ReagentCalculationStatus.FORMED:
         return Response(
-            {'error': 'Можно завершать только заявки в статусе "Сформирована"'}, 
+            {'error': 'Можно завершать только заявки в статусе "Сформирована"'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     # Получаем действие из запроса (complete/reject)
     action = request.data.get('action')
     if action not in ['complete', 'reject']:
         return Response(
-            {'error': 'Неверное действие. Допустимые значения: complete, reject'}, 
+            {'error': 'Неверное действие. Допустимые значения: complete, reject'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     # Используем текущего пользователя как модератора
     moderator = request.user
-    
+
     # Меняем статус в зависимости от действия
     if action == 'complete':
         calculation.status = ReagentCalculation.ReagentCalculationStatus.COMPLETED
-        
-        ## 🔧 РАСЧЕТ БИЗНЕС-ЛОГИКИ ПРИ ЗАВЕРШЕНИИ
+
+        # 🔧 РАСЧЕТ БИЗНЕС-ЛОГИКИ ПРИ ЗАВЕРШЕНИИ
         # Расчет общей массы реагентов (формула из лабораторной 2)
         total_input_mass = calculate_total_input_mass(calculation)
         calculation.total_input_mass = total_input_mass
         calculation.results_quantity = ChemicalProcessInReagentCalculation.objects.filter(
-                calculation__id=calculation.id,
-                process__is_active=True,
-            ).aggregate(total=Sum('quantity'))['total']
-        
+            calculation__id=calculation.id,
+            process__is_active=True,
+        ).aggregate(total=Sum('quantity'))['total']
+
     else:  # reject
         calculation.status = ReagentCalculation.ReagentCalculationStatus.REJECTED
-    
+
     # Проставляем модератора и дату завершения
     calculation.manager = moderator
     calculation.completion_datetime = timezone.now()
     calculation.save()
-    
-    serializer = ReagentCalculationSerializer(calculation)
+
+    # UPDATED: DetailSerializer
+    serializer = ReagentCalculationDetailSerializer(calculation)
     return Response(serializer.data)
+
 
 def calculate_total_input_mass(calculation):
     """
@@ -468,25 +513,27 @@ def calculate_total_input_mass(calculation):
     processes_in_calculation = ChemicalProcessInReagentCalculation.objects.filter(
         calculation=calculation
     ).select_related('process')
-    
+
     total_mass = 0
-    
+
     for item in processes_in_calculation:
         # Базовая масса для target_mass = 1000 кг
         base_mass_for_1000 = item.process.input_mass * item.quantity
-        
+
         # Масштабируем под целевую массу
         scaled_mass = base_mass_for_1000 * (calculation.target_mass / 1000)
-        
+
         # Учитываем выход реакции
         mass_with_yield = scaled_mass * (100 / item.process.yield_percent)
-        
+
         # Учитываем коэффициент запаса
-        mass_with_safety = mass_with_yield * (1 + calculation.safety_factor / 100)
-        
+        mass_with_safety = mass_with_yield * \
+            (1 + calculation.safety_factor / 100)
+
         total_mass += mass_with_safety
-    
+
     return round(total_mass, 2)
+
 
 @swagger_auto_schema(
     method='post',
@@ -513,10 +560,10 @@ def add_process_to_cart(request, pk):
     """
     # Получаем услугу
     process = get_object_or_404(ChemicalProcess, pk=pk, is_active=True)
-    
+
     # Используем текущего пользователя
     user = request.user
-    
+
     # Ищем или создаем заявку-черновик для пользователя
     calculation = get_reagent_calculaion_in_draft_ctatus(user)
 
@@ -528,17 +575,17 @@ def add_process_to_cart(request, pk):
             client=user,
             status=ReagentCalculation.ReagentCalculationStatus.DRAFT,
             target_mass=0,
-            safety_factor=0, 
+            safety_factor=0,
             calculation_date=timezone.now().date()
         )
         created = True
-    
+
     # Проверяем, не добавлена ли уже эта услуга в заявку
     existing_relation = ChemicalProcessInReagentCalculation.objects.filter(
         calculation=calculation,
         process=process
     ).first()
-    
+
     if existing_relation:
         # Если уже есть - увеличиваем quantity
         existing_relation.quantity += 1
@@ -549,21 +596,22 @@ def add_process_to_cart(request, pk):
             calculation=calculation,
             process=process,
             quantity=1,
-            comment='Добавлено через API',
+            # УБРАНО: поле comment удалено из создания, так как его нет в модели
             calculation_result=0
         )
-    
+
     # Возвращаем информацию о корзине
     processes_count = ChemicalProcessInReagentCalculation.objects.filter(
         calculation=calculation
     ).aggregate(total=Sum('quantity'))['total'] or 0
-    
+
     return Response({
         'message': f'Услуга "{process.name}" добавлена в заявку',
         'calculation_id': calculation.id,
         'processes_count': processes_count,
         'created_new_calculation': created
     }, status=status.HTTP_201_CREATED)
+
 
 @swagger_auto_schema(
     method='put',
@@ -579,43 +627,45 @@ def add_process_to_cart(request, pk):
 @authentication_classes([LuaSessionAuthentication])
 def update_calculation_process(request):
     """
-    PUT: Изменение M2M связи (количество, порядок, комментарий)
+    PUT: Изменение M2M связи (количество, порядок)
     Без PK - используем calculation_id и process_id
     """
-    serializer = ChemicalProcessInCalculationDeleteSerializer(data=request.data)
+    serializer = ChemicalProcessInCalculationDeleteSerializer(
+        data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     calculation_id = serializer.validated_data['calculation_id']
     process_id = serializer.validated_data['process_id']
-    
+
     # Ищем заявку и проверяем права
     calculation = get_object_or_404(ReagentCalculation, pk=calculation_id)
     if calculation.client != request.user:
         return Response(
-            {'error': 'Нет прав для изменения этой заявки'}, 
+            {'error': 'Нет прав для изменения этой заявки'},
             status=status.HTTP_403_FORBIDDEN
         )
-    
+
     # Ищем M2M связь
     m2m_relation = get_object_or_404(
         ChemicalProcessInReagentCalculation,
         calculation_id=calculation_id,
         process_id=process_id
     )
-    
+
     # Обновляем данные
     update_serializer = ChemicalProcessInCalculationUpdateSerializer(
-        m2m_relation, 
-        data=request.data, 
+        m2m_relation,
+        data=request.data,
         partial=True
     )
-    
+
     if update_serializer.is_valid():
         update_serializer.save()
         return Response(update_serializer.data)
-    
+
     return Response(update_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 @swagger_auto_schema(
     method='delete',
@@ -634,34 +684,36 @@ def delete_calculation_process(request):
     DELETE: Удаление M2M связи (удаление услуги из заявки)
     Без PK - используем calculation_id и process_id
     """
-    serializer = ChemicalProcessInCalculationDeleteSerializer(data=request.data)
+    serializer = ChemicalProcessInCalculationDeleteSerializer(
+        data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     calculation_id = serializer.validated_data['calculation_id']
     process_id = serializer.validated_data['process_id']
-    
+
     # Ищем заявку и проверяем права
     calculation = get_object_or_404(ReagentCalculation, pk=calculation_id)
     if calculation.client != request.user:
         return Response(
-            {'error': 'Нет прав для изменения этой заявки'}, 
+            {'error': 'Нет прав для изменения этой заявки'},
             status=status.HTTP_403_FORBIDDEN
         )
-    
+
     # Ищем и удаляем M2M связь
     m2m_relation = get_object_or_404(
         ChemicalProcessInReagentCalculation,
         calculation_id=calculation_id,
         process_id=process_id
     )
-    
+
     m2m_relation.delete()
-    
+
     return Response(
-        {'message': 'Услуга удалена из заявки'}, 
+        {'message': 'Услуга удалена из заявки'},
         status=status.HTTP_204_NO_CONTENT
     )
+
 
 @swagger_auto_schema(
     method='post',
@@ -694,6 +746,7 @@ def user_register(request):
         )
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 @swagger_auto_schema(
     method='get',
     operation_description="Получить профиль пользователя",
@@ -716,17 +769,19 @@ def user_profile(request):
     GET/PUT: Профиль - работаем с текущим пользователем
     """
     user = request.user  # Используем текущего пользователя
-    
+
     if request.method == 'GET':
         serializer = UserProfileSerializer(user)
         return Response(serializer.data)
-    
+
     elif request.method == 'PUT':
-        serializer = UserProfileSerializer(user, data=request.data, partial=True)
+        serializer = UserProfileSerializer(
+            user, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 @swagger_auto_schema(
     method='post',
@@ -751,35 +806,30 @@ def user_profile(request):
 @permission_classes([AllowAny])
 @authentication_classes([])
 def user_login(request):
-    """
-    POST: Аутентификация - создаем только Lua-сессию
-    """
     serializer = UserLoginSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.validated_data['user']
-        
-        # СОЗДАЕМ LUA-СЕССИЮ (без Django сессии)
+
         try:
-            redis_client = get_redis_connection("default")
-            create_session_script = redis_client.register_script(LUA_SCRIPTS['create_user_session'])
-            timestamp = str(int(time.time()))
-            session_key = create_session_script(keys=[], args=[str(user.id), user.username, timestamp])
-            session_key_str = session_key.decode('utf-8') if isinstance(session_key, bytes) else session_key
+            session_key = create_user_session(user.id, user.username)
         except Exception as e:
-            return Response({
-                'error': f'Ошибка создания сессии: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        return Response({
-            'message': 'Успешная аутентификация', 
-            'user_id': user.id,
-            'username': user.username,
-            'session_key': session_key_str,  # ← Клиент сохраняет этот ключ
-            'is_staff': user.is_staff,
-            'is_superuser': user.is_superuser,
-            'expires_in': 3600  # 1 час
-        })
+            return Response(
+                {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERRO
+            )
+
+        return Response(
+            {
+                "message": "Успешная аутентификация",
+                "user_id": user.id,
+                "username": user.username,
+                "session_key": session_key,
+                "is_staff": user.is_staff,
+                "is_superuser": user.is_superuser,
+                "expires_in": 3600,
+            }
+        )
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 @swagger_auto_schema(
     method='post',
@@ -801,43 +851,15 @@ def user_login(request):
     }
 )
 @api_view(['POST'])
-@permission_classes([AllowAny])  # Разрешаем всем, т.к. сессия может быть невалидной
+# Разрешаем всем, т.к. сессия может быть невалидной
+@permission_classes([AllowAny])
 @authentication_classes([])
 def user_logout(request):
-    """
-    POST: Деавторизация - удаляем только Lua-сессии
-    """
     session_key = request.data.get('session_key')
-    user_id = request.data.get('user_id')
-    
-    if not session_key and not user_id:
-        return Response({
-            'error': 'Необходим session_key или user_id'
-        }, status=status.HTTP_400_BAD_REQUEST)
-    
-    deleted_count = 0
-    try:
-        redis_client = get_redis_connection("default")
-        
-        if user_id:
-            # Удаляем все сессии пользователя
-            delete_sessions_script = redis_client.register_script(LUA_SCRIPTS['delete_user_sessions'])
-            deleted_count = delete_sessions_script(keys=[], args=[str(user_id)])
-        elif session_key:
-            # Удаляем конкретную сессию
-            redis_client.delete(session_key)
-            deleted_count = 1
-        
-        deleted_count_int = int(deleted_count) if deleted_count else 0
-        
-        return Response({
-            'message': 'Выход выполнен', 
-            'deleted_sessions': deleted_count_int,
-            'user_id': user_id,
-            'session_key': session_key
-        })
-        
-    except Exception as e:
-        return Response({
-            'error': f'Ошибка выхода: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    if session_key:
+        destroy_session(session_key)
+
+    return Response({
+        'message': 'Выход выполнен'
+    })
