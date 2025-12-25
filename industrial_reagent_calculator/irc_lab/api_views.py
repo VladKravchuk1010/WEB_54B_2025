@@ -6,7 +6,6 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from .models import ChemicalProcess, ReagentCalculation, ChemicalProcessInReagentCalculation
-from django.contrib.auth.models import User
 from django.db.models import Sum
 from .views import get_reagent_calculaion_in_draft_ctatus
 from .serializers import (
@@ -19,7 +18,6 @@ from .serializers import (
     ReagentCalculationDetailSerializer,  # NEW
     ReagentCalculationCreateSerializer,
     CartIconSerializer,
-    ChemicalProcessInCalculationSerializer,
     UserRegistrationSerializer,
     UserProfileSerializer,
     UserLoginSerializer
@@ -31,10 +29,10 @@ from drf_yasg import openapi
 
 # Permissions imports
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
-from .permissions import IsManager, IsAdmin, IsOwner, IsOwnerOrManager
+from .permissions import IsManager, IsOwner, IsOwnerOrManager
 
-from .authentication import get_redis_connection, create_user_session, destroy_session, LuaSessionAuthentication
-
+from .authentication import create_user_session, destroy_session, LuaSessionAuthentication
+from django.contrib.auth import update_session_auth_hash
 
 class ChemicalProcessList(APIView):
     """
@@ -487,10 +485,7 @@ def calculation_complete(request, pk):
         # Расчет общей массы реагентов (формула из лабораторной 2)
         total_input_mass = calculate_total_input_mass(calculation)
         calculation.total_input_mass = total_input_mass
-        calculation.results_quantity = ChemicalProcessInReagentCalculation.objects.filter(
-            calculation__id=calculation.id,
-            process__is_active=True,
-        ).aggregate(total=Sum('quantity'))['total']
+        
 
     else:  # reject
         calculation.status = ReagentCalculation.ReagentCalculationStatus.REJECTED
@@ -507,30 +502,31 @@ def calculation_complete(request, pk):
 
 def calculate_total_input_mass(calculation):
     """
-    Расчет общей массы реагентов для завершенной заявки
-    Формула: сумма(process.input_mass * quantity) * (target_mass / 1000) * (1 + safety_factor/100)
+    Расчет массы для каждого процесса И общей массы заявки.
     """
     processes_in_calculation = ChemicalProcessInReagentCalculation.objects.filter(
         calculation=calculation
-    ).select_related('process')
+    ).select_related("process")
 
     total_mass = 0
 
+    results_count = processes_in_calculation.count()
+
     for item in processes_in_calculation:
-        # Базовая масса для target_mass = 1000 кг
         base_mass_for_1000 = item.process.input_mass * item.quantity
 
-        # Масштабируем под целевую массу
         scaled_mass = base_mass_for_1000 * (calculation.target_mass / 1000)
 
-        # Учитываем выход реакции
         mass_with_yield = scaled_mass * (100 / item.process.yield_percent)
 
-        # Учитываем коэффициент запаса
-        mass_with_safety = mass_with_yield * \
-            (1 + calculation.safety_factor / 100)
+        mass_with_safety = mass_with_yield * (1 + calculation.safety_factor / 100)
+
+        item.calculation_result = round(mass_with_safety, 2)
+        item.save()
 
         total_mass += mass_with_safety
+
+    calculation.results_quantity = results_count
 
     return round(total_mass, 2)
 
@@ -576,7 +572,8 @@ def add_process_to_cart(request, pk):
             status=ReagentCalculation.ReagentCalculationStatus.DRAFT,
             target_mass=0,
             safety_factor=0,
-            calculation_date=timezone.now().date()
+            calculation_date=timezone.now().date(),
+            results_quantity=0,
         )
         created = True
 
@@ -778,7 +775,9 @@ def user_profile(request):
         serializer = UserProfileSerializer(
             user, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+            user = serializer.save()
+            if "password" in serializer.validated_data:
+                update_session_auth_hash(request, user)
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -822,6 +821,8 @@ def user_login(request):
                 "message": "Успешная аутентификация",
                 "user_id": user.id,
                 "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
                 "session_key": session_key,
                 "is_staff": user.is_staff,
                 "is_superuser": user.is_superuser,

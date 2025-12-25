@@ -2,7 +2,6 @@ from rest_framework import serializers
 from .models import ChemicalProcess, ReagentCalculation, ChemicalProcessInReagentCalculation
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
-from django.contrib.auth.hashers import make_password
 
 class ChemicalProcessSerializer(serializers.ModelSerializer):
     class Meta:
@@ -39,7 +38,7 @@ class ChemicalProcessInCalculationSerializer(serializers.ModelSerializer):
         model = ChemicalProcessInReagentCalculation
         fields = [
             'id', 'calculation', 'process', 'process_name', 'process_image',
-            'quantity', 'calculation_result'  # УБРАНО поле 'comment', его нет в модели
+            'quantity', 'calculation_result'
         ]
         read_only_fields = ['id', 'calculation']
 
@@ -55,14 +54,25 @@ class ReagentCalculationDetailSerializer(serializers.ModelSerializer):
     )
     client_username = serializers.CharField(source='client.username', read_only=True)
     manager_username = serializers.CharField(source='manager.username', read_only=True)
-    
+
     class Meta:
         model = ReagentCalculation
         fields = [
-            'id', 'status', 'creation_datetime', 'formation_datetime', 
-            'completion_datetime', 'client', 'client_username', 'manager', 
-            'manager_username', 'target_mass', 'safety_factor', 
-            'calculation_date', 'total_input_mass', 'processes'
+            "id",
+            "status",
+            "creation_datetime",
+            "formation_datetime",
+            "completion_datetime",
+            "client",
+            "client_username",
+            "manager",
+            "manager_username",
+            "target_mass",
+            "safety_factor",
+            "calculation_date",
+            "total_input_mass",
+            "processes",
+            "results_quantity",
         ]
         read_only_fields = [
             'id', 'status', 'creation_datetime', 'formation_datetime',
@@ -139,10 +149,47 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return user
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False, min_length=6)
+    password_confirm = serializers.CharField(write_only=True, required=False)
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'date_joined']
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "date_joined",
+            "password",
+            "password_confirm"
+        ]
         read_only_fields = ['id', 'username', 'date_joined']
+
+    def validate(self, attrs):
+        password = attrs.get("password")
+        password_confirm = attrs.get("password_confirm")
+
+        if password or password_confirm:
+            if password != password_confirm:
+                raise serializers.ValidationError(
+                    {"password_confirm": "Пароли не совпадают"}
+                )
+        return attrs
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        validated_data.pop("password_confirm", None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if password:
+            instance.set_password(password)
+
+        instance.save()
+        return instance
+
 
 class UserLoginSerializer(serializers.Serializer):
     username = serializers.CharField()
