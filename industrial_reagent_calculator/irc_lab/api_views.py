@@ -488,7 +488,13 @@ def calculation_complete(request, pk):
         try:
             requests.post(
                 "http://localhost:8081/set_status",
-                data={"pk": calculation.id},
+                data={
+                    "pk": calculation.id,
+                    "data": {
+                        "target_mass": calculation.target_mass,
+                        "safety_factor":calculation.safety_factor,
+                    },
+                },
                 timeout=2,
             )
         except Exception as e:
