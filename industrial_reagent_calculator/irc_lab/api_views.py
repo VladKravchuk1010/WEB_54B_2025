@@ -1,4 +1,5 @@
 from django.utils import timezone
+import requests
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
@@ -33,6 +34,8 @@ from .permissions import IsManager, IsOwner, IsOwnerOrManager
 
 from .authentication import create_user_session, destroy_session, LuaSessionAuthentication
 from django.contrib.auth import update_session_auth_hash
+
+ASYNC_SERVICE_TOKEN = "SECRET_KEY1227"
 
 class ChemicalProcessList(APIView):
     """
@@ -474,18 +477,24 @@ def calculation_complete(request, pk):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Используем текущего пользователя как модератора
     moderator = request.user
 
     # Меняем статус в зависимости от действия
     if action == 'complete':
-        calculation.status = ReagentCalculation.ReagentCalculationStatus.COMPLETED
+        # calculation.status = ReagentCalculation.ReagentCalculationStatus.COMPLETED
 
-        # 🔧 РАСЧЕТ БИЗНЕС-ЛОГИКИ ПРИ ЗАВЕРШЕНИИ
-        # Расчет общей массы реагентов (формула из лабораторной 2)
-        total_input_mass = calculate_total_input_mass(calculation)
-        calculation.total_input_mass = total_input_mass
-        
+        # total_input_mass = calculate_total_input_mass(calculation)
+        # calculation.total_input_mass = total_input_mass
+        try:
+            requests.post(
+                "http://localhost:8081/set_status",
+                data={"pk": calculation.id},
+                timeout=2,
+            )
+        except Exception as e:
+            print(f"Ошибка связи с Go: {e}")
+
+        return Response({"message": "Расчет запущен в фоновом режиме"})
 
     else:  # reject
         calculation.status = ReagentCalculation.ReagentCalculationStatus.REJECTED
@@ -498,6 +507,31 @@ def calculation_complete(request, pk):
     # UPDATED: DetailSerializer
     serializer = ReagentCalculationDetailSerializer(calculation)
     return Response(serializer.data)
+
+
+@api_view(["PUT"])
+@permission_classes([AllowAny])
+def update_async_result(request, pk):
+    token = request.headers.get("X-Async-Token")
+    if token != ASYNC_SERVICE_TOKEN:
+        return Response({"error": "Unauthorized"}, status=403)
+
+    calculation = get_object_or_404(ReagentCalculation, pk=pk)
+    calculation.total_input_mass = request.data.get("result", 0)
+    processes_in_calculation = ChemicalProcessInReagentCalculation.objects.filter(
+        calculation=calculation
+    ).select_related("process")
+    for item in processes_in_calculation:
+        item.calculation_result = calculation.total_input_mass
+        item.save()
+
+    calculation.status = ReagentCalculation.ReagentCalculationStatus.COMPLETED
+    calculation.save()
+
+    # total_input_mass = calculate_total_input_mass(calculation)
+    # calculation.total_input_mass = total_input_mass
+    # calculation.save()
+    return Response({"status": "updated"})
 
 
 def calculate_total_input_mass(calculation):
